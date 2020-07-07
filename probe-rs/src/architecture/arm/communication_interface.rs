@@ -12,8 +12,7 @@ use super::{
 };
 use crate::config::ChipInfo;
 use crate::{
-    probe::AttachMethod, CommunicationInterface, DebugProbe, DebugProbeError,
-    Error as ProbeRsError, Memory, Probe,
+    CommunicationInterface, DebugProbe, DebugProbeError, Error as ProbeRsError, Memory, Probe,
 };
 use anyhow::anyhow;
 use jep106::JEP106Code;
@@ -123,8 +122,6 @@ pub trait DAPAccess: DebugProbe {
 pub struct ArmCommunicationInterfaceState {
     initialized: bool,
 
-    attach_method: AttachMethod,
-
     debug_port_version: DebugPortVersion,
 
     current_dpbanksel: u8,
@@ -134,10 +131,9 @@ pub struct ArmCommunicationInterfaceState {
 }
 
 impl ArmCommunicationInterfaceState {
-    pub fn new(attach_method: AttachMethod) -> Self {
+    pub fn new() -> Self {
         Self {
             initialized: false,
-            attach_method,
             debug_port_version: DebugPortVersion::Unsupported(0xFF),
             current_dpbanksel: 0,
             current_apsel: 0,
@@ -179,72 +175,7 @@ impl<'probe> ArmCommunicationInterface<'probe> {
             let mut interface = Self { probe, state };
 
             if !interface.state.initialized() {
-                match interface.state.attach_method {
-                    AttachMethod::UnderReset => {
-                        interface.enter_debug_mode()?;
-
-                        // we need to halt the chip here
-
-                        use crate::architecture::arm::core::m4::{Demcr, Dhcsr};
-                        use crate::core::CoreRegister;
-
-                        let mut memory =
-                            ADIMemoryInterface::<ArmCommunicationInterface>::new(interface, 0)
-                                .unwrap();
-
-                        // ensure that the target is halted after reset
-                        let mut dhcsr = Dhcsr(0);
-                        dhcsr.set_c_halt(true);
-                        dhcsr.set_c_debugen(true);
-                        dhcsr.enable_write();
-
-                        memory.write_word_32(Dhcsr::ADDRESS, dhcsr.into()).unwrap();
-
-                        let mut demcr = Demcr(0);
-                        demcr.set_vc_corereset(true);
-
-                        memory.write_word_32(Demcr::ADDRESS, demcr.into()).unwrap();
-
-                        // Close down the memory interface to get back the interface
-                        interface = memory.close();
-
-                        interface.probe.target_reset_deassert().unwrap();
-
-                        // Wait until the core is halted
-                        let mut memory =
-                            ADIMemoryInterface::<ArmCommunicationInterface>::new(interface, 0)
-                                .unwrap();
-
-                        let mut core_halted = false;
-
-                        for _ in 0..100 {
-                            let dhcsr_val = Dhcsr(memory.read_word_32(Dhcsr::ADDRESS).unwrap());
-
-                            if dhcsr_val.s_halt() {
-                                core_halted = true;
-                            }
-                        }
-
-                        // Core did not stop in time
-                        if !core_halted {
-                            return Err(DebugProbeError::Timeout);
-                        }
-
-                        // Clear DEMCR
-                        let demcr = Demcr(0);
-
-                        memory.write_word_32(Demcr::ADDRESS, demcr.into()).unwrap();
-
-                        // Clear DHCSR
-                        let dhcsr = Dhcsr(0);
-                        memory.write_word_32(Dhcsr::ADDRESS, dhcsr.into()).unwrap();
-
-                        interface = memory.close();
-                    }
-                    AttachMethod::Normal => {
-                        interface.enter_debug_mode()?;
-                    }
-                }
+                interface.enter_debug_mode()?;
 
                 interface.state.initialize();
             }

@@ -36,12 +36,6 @@ impl<'probe> ADIMemoryInterface<ArmCommunicationInterface<'probe>> {
         interface.detect_data_size()?;
         Ok(interface)
     }
-
-    /// Close the MemoryInterface, so that we can get back the
-    /// interface.
-    pub(crate) fn close(self) -> ArmCommunicationInterface<'probe> {
-        self.interface
-    }
 }
 
 impl ADIMemoryInterface<MockMemoryAP> {
